@@ -32,7 +32,8 @@ def extract_courses(text):
     return pd.DataFrame(courses)
 
 def analyze_pdf(uploaded_file):
-    text = parse_pdf(uploaded_file)
+    import json
+    text = parse_pdf(uploaded_file, max_pages=5)  # 最多處理前5頁
     df = extract_courses(text)
     category_map = load_category_map()
 
@@ -50,28 +51,33 @@ def analyze_pdf(uploaded_file):
             }])
         }
 
-    for col in ["必修", "I類選修", "II類選修", "一般選修"]:
-        df[col] = False
+    # 建立快速對照表（課名 ➜ 分類）
+    name_to_category = {
+        name: cat
+        for cat, names in category_map.items()
+        for name in names
+    }
 
-    for i, row in df.iterrows():
-        name = row["課程名稱"]
-        for cat, names in category_map.items():
-            if name in names:
-                df.at[i, cat] = True
+    # 一次完成分類
+    df["分類標記"] = df["課程名稱"].map(name_to_category).fillna("一般選修")
+    df["必修"] = df["分類標記"] == "必修"
+    df["I類選修"] = df["分類標記"] == "I類選修"
+    df["II類選修"] = df["分類標記"] == "II類選修"
+    df["一般選修"] = df["分類標記"] == "一般選修"
 
+    # 有效學分過濾
     def compute_valid_credit(r):
         try:
             return r["學分"] if r["GPA"] is not None and r["GPA"] >= 1.7 else 0
         except:
             return 0
-
     df["有效學分"] = df.apply(compute_valid_credit, axis=1)
 
     summary = {
         "必修": df[df["必修"]]["有效學分"].sum(),
         "I類選修": df[df["I類選修"]]["有效學分"].sum(),
         "II類選修": df[df["II類選修"]]["有效學分"].sum(),
-        "一般選修": df[df["一般選修"]]["有效學分"].sum(),
+        "一般選修": df[df["一般選修"]]["有效學分"].sum()
     }
 
     total_elective = summary["I類選修"] + summary["II類選修"] + summary["一般選修"]
